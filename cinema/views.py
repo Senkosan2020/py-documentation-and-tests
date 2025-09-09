@@ -8,7 +8,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet, ReadOnlyModelViewSet
-
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from cinema.models import Genre, Actor, CinemaHall, Movie, MovieSession, Order
 from cinema.permissions import IsAdminOrIfAuthenticatedReadOnly
 
@@ -127,6 +127,41 @@ class MovieViewSet(
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="title",
+                description="Case-insensitive "
+                            "substring match on movie title. "
+                            "Example: `?title=man`",
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name="genres",
+                description="Comma-separated genre IDs "
+                            "(OR-filter). Example: `?genres=1,3`",
+                required=False,
+                type=OpenApiTypes.STR,  # "1,2,3"
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name="actors",
+                description="Comma-separated actor "
+                            "IDs (OR-filter). Example: `?actors=4,5`",
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+        ],
+        description="List movies with optional "
+                    "filters by title, genres and actors.",
+    )
+    def list(self, request, *args, **kwargs):
+        """Documented list for Swagger (filters: title, genres, actors)."""
+        return super().list(request, *args, **kwargs)
+
 
 class MovieSessionViewSet(viewsets.ModelViewSet):
     queryset = (
@@ -166,6 +201,30 @@ class MovieSessionViewSet(viewsets.ModelViewSet):
             return MovieSessionDetailSerializer
 
         return MovieSessionSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="date",
+                description="Filter by show date (YYYY-MM-DD). "
+                            "Example: `?date=2025-09-01`",
+                required=False,
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name="movie",
+                description="Filter by movie ID. Example: `?movie=1`",
+                required=False,
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+            ),
+        ],
+        description="List movie sessions filtered by date and/or movie.",
+    )
+    def list(self, request, *args, **kwargs):
+        """Documented list for Swagger (filters: date, movie)."""
+        return super().list(request, *args, **kwargs)
 
 
 class OrderPagination(PageNumberPagination):
