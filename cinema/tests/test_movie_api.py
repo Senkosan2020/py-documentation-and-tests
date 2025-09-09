@@ -8,6 +8,7 @@ from django.urls import reverse
 
 from rest_framework.test import APIClient
 from rest_framework import status
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from cinema.models import Movie, MovieSession, CinemaHall, Genre, Actor
 
