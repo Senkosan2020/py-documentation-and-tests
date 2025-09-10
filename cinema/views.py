@@ -1,17 +1,18 @@
 from datetime import datetime
-
+from django.utils.dateparse import parse_date
+from rest_framework.exceptions import ParseError
 from django.db.models import F, Count
 from rest_framework import viewsets, mixins, status
 from rest_framework.authentication import TokenAuthentication
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet, ReadOnlyModelViewSet
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from cinema.models import Genre, Actor, CinemaHall, Movie, MovieSession, Order
 from cinema.permissions import IsAdminOrIfAuthenticatedReadOnly
-from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from cinema.serializers import (
     GenreSerializer,
@@ -67,12 +68,22 @@ class MovieViewSet(
 ):
     queryset = Movie.objects.prefetch_related("genres", "actors")
     serializer_class = MovieSerializer
-    permission_classes = (IsAdminOrIfAuthenticatedReadOnly,)
+    permission_classes = (IsAuthenticated,)
+
+    def get_permissions(self):
+        if self.action in ("create", "upload_image"):
+            return [IsAdminUser()]
+        return super().get_permissions()
 
     @staticmethod
     def _params_to_ints(qs):
         """Converts a list of string IDs to a list of integers"""
         return [int(str_id) for str_id in qs.split(",")]
+
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            raise PermissionDenied("Only admin can create movies.")
+        return super().create(request, *args, **kwargs)
 
     def get_queryset(self):
         """Retrieve the movies with filters"""
@@ -80,18 +91,22 @@ class MovieViewSet(
         genres = self.request.query_params.get("genres")
         actors = self.request.query_params.get("actors")
 
-        queryset = self.queryset
+        queryset = super().get_queryset() if (
+            hasattr(super(), "get_queryset")) \
+            else self.queryset
 
         if title:
             queryset = queryset.filter(title__icontains=title)
 
         if genres:
-            genres_ids = self._params_to_ints(genres)
-            queryset = queryset.filter(genres__id__in=genres_ids)
+            genre_ids = self._parse_id_list(genres, "genres")
+            if genre_ids:
+                queryset = queryset.filter(genres__id__in=genre_ids)
 
         if actors:
-            actors_ids = self._params_to_ints(actors)
-            queryset = queryset.filter(actors__id__in=actors_ids)
+            actor_ids = self._parse_id_list(actors, "actors")
+            if actor_ids:
+                queryset = queryset.filter(actors__id__in=actor_ids)
 
         return queryset.distinct()
 
@@ -107,6 +122,27 @@ class MovieViewSet(
 
         return MovieSerializer
 
+    @staticmethod
+    def _parse_id_list(csv_value, field_name):
+        ids = []
+        for raw in csv_value.split(","):
+            token = raw.strip()
+            if not token:
+                continue
+            try:
+                ids.append(int(token))
+            except (TypeError, ValueError):
+                raise ParseError(
+                    f"Invalid '{field_name}' parameter. "
+                    f"Use comma-separated integers, e.g. '{field_name}=1,2,3'."
+                )
+        return ids
+
+    def get_throttles(self):
+        if getattr(self, "action", None) == "upload_image":
+            return []
+        return super().get_throttles()
+
     @action(
         methods=["POST"],
         detail=True,
@@ -115,6 +151,8 @@ class MovieViewSet(
     )
     def upload_image(self, request, pk=None):
         """Endpoint for uploading image to specific movie"""
+        if not request.user.is_staff:
+            raise PermissionDenied("Only admin can upload images.")
         movie = self.get_object()
         serializer = self.get_serializer(movie, data=request.data)
 
@@ -175,17 +213,31 @@ class MovieSessionViewSet(viewsets.ModelViewSet):
     permission_classes = (IsAdminOrIfAuthenticatedReadOnly,)
 
     def get_queryset(self):
-        date = self.request.query_params.get("date")
-        movie_id_str = self.request.query_params.get("movie")
+        date_str = self.request.query_params.get("date")
+        movie_str = self.request.query_params.get("movie")
 
-        queryset = self.queryset
+        queryset = super().get_queryset() if (
+            hasattr(super(), "get_queryset")) \
+            else self.queryset
 
-        if date:
-            date = datetime.strptime(date, "%Y-%m-%d").date()
-            queryset = queryset.filter(show_time__date=date)
+        if date_str:
+            dt = parse_date(date_str)
+            if dt is None:
+                raise ParseError(
+                    "Invalid 'date' parameter. "
+                    "Expected format YYYY-MM-DD, e.g. '2025-03-01'."
+                )
+            queryset = queryset.filter(show_time__date=dt)
 
-        if movie_id_str:
-            queryset = queryset.filter(movie_id=int(movie_id_str))
+        if movie_str:
+            try:
+                movie_id = int(movie_str)
+            except (TypeError, ValueError):
+                raise ParseError(
+                    "Invalid 'movie' parameter. "
+                    "Expected integer id, e.g. 'movie=7'."
+                )
+            queryset = queryset.filter(movie_id=movie_id)
 
         return queryset
 

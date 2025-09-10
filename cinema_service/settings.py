@@ -44,7 +44,6 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    "rest_framework.authtoken",
     "debug_toolbar",
     "cinema",
     "user",
@@ -170,5 +169,16 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION":
         "Cinema service API with JWT auth, throttling and filtering.",
     "VERSION": "1.0.0",
+
     "SECURITY": [{"BearerAuth": []}],
+
+    "COMPONENTS": {
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            }
+        }
+    },
 }
